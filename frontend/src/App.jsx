@@ -1,112 +1,172 @@
 import { useEffect, useState } from 'react';
+import './App.css';
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
-
-export default function App() {
+function App() {
   const [todos, setTodos] = useState([]);
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
-  const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [isLoading, setIsLoading] = useState(true);
 
-  const loadTodos = async () => {
-    setError('');
-    try {
-      const response = await fetch(`${API_BASE_URL}/todos`);
-      if (!response.ok) {
-        throw new Error('Failed to load todos');
-      }
-      const data = await response.json();
-      setTodos(data);
-    } catch (err) {
-      setError(err.message || 'Failed to load todos');
-    } finally {
-      setLoading(false);
-    }
-  };
+  const apiBaseUrl = process.env.REACT_APP_API_URL ?? '';
 
   useEffect(() => {
-    loadTodos();
-  }, []);
+    const fetchTodos = async () => {
+      setIsLoading(true);
+      setError('');
 
-  const handleSubmit = async (event) => {
-    event.preventDefault();
+      try {
+        const response = await fetch(`${apiBaseUrl}/todos/`);
+        if (!response.ok) {
+          throw new Error(`Failed to load todos: ${response.status}`);
+        }
+        const data = await response.json();
+        setTodos(data);
+      } catch (error) {
+        setError('Unable to load todos. Make sure the backend is running.');
+        console.error('Error fetching todos:', error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchTodos();
+  }, [apiBaseUrl]);
+
+  const addTodo = async (e) => {
+    e.preventDefault();
     if (!title.trim()) {
-      setError('Title is required');
       return;
     }
 
-    setError('');
     try {
-      const response = await fetch(`${API_BASE_URL}/todos`, {
+      const response = await fetch(`${apiBaseUrl}/todos/`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ title, description, completed: false }),
+        body: JSON.stringify({
+          title: title.trim(),
+          description: description.trim() || null,
+        }),
       });
 
       if (!response.ok) {
-        throw new Error('Failed to create todo');
+        throw new Error(`Failed to create todo: ${response.status}`);
       }
 
-      const createdTodo = await response.json();
-      setTodos((current) => [createdTodo, ...current]);
+      const newTodo = await response.json();
+      setTodos((currentTodos) => [...currentTodos, newTodo]);
       setTitle('');
       setDescription('');
-    } catch (err) {
-      setError(err.message || 'Failed to create todo');
+      setError('');
+    } catch (error) {
+      setError('Unable to add the todo. Try again.');
+      console.error('Error adding todo:', error);
+    }
+  };
+
+  const toggleTodo = async (id, completed) => {
+    try {
+      const response = await fetch(`${apiBaseUrl}/todos/${id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ completed: !completed }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to update todo: ${response.status}`);
+      }
+
+      const updatedTodo = await response.json();
+      setTodos((currentTodos) => currentTodos.map((todo) => (todo.id === id ? updatedTodo : todo)));
+      setError('');
+    } catch (error) {
+      setError('Unable to update the todo. Try again.');
+      console.error('Error toggling todo:', error);
+    }
+  };
+
+  const deleteTodo = async (id) => {
+    try {
+      const response = await fetch(`${apiBaseUrl}/todos/${id}`, {
+        method: 'DELETE',
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to delete todo: ${response.status}`);
+      }
+
+      setTodos((currentTodos) => currentTodos.filter((todo) => todo.id !== id));
+      setError('');
+    } catch (error) {
+      setError('Unable to delete the todo. Try again.');
+      console.error('Error deleting todo:', error);
     }
   };
 
   return (
-    <main className="app-shell">
-      <section className="hero">
-        <p className="eyebrow">React + FastAPI + PostgreSQL</p>
-        <h1>Simple todo stack</h1>
-        <p className="lead">A minimal full-stack starter connected to a Postgres-backed API.</p>
-      </section>
+    <div className="app-shell">
+      <main className="todo-card">
+        <div className="hero">
+          <p className="eyebrow">React + FastAPI + PostgreSQL</p>
+          <h1>Todo workflow that stays out of your way.</h1>
+          <p className="subheading">
+            Capture tasks, mark them complete, and keep the list synced with the backend.
+          </p>
+        </div>
 
-      <section className="panel">
-        <h2>Add todo</h2>
-        <form className="todo-form" onSubmit={handleSubmit}>
+        <form className="todo-form" onSubmit={addTodo}>
           <input
             type="text"
-            placeholder="Todo title"
+            placeholder="Title"
             value={title}
-            onChange={(event) => setTitle(event.target.value)}
+            onChange={(e) => setTitle(e.target.value)}
+            required
+            aria-label="Todo title"
           />
           <input
             type="text"
             placeholder="Description"
             value={description}
-            onChange={(event) => setDescription(event.target.value)}
+            onChange={(e) => setDescription(e.target.value)}
+            aria-label="Todo description"
           />
-          <button type="submit">Create</button>
+          <button type="submit">Add todo</button>
         </form>
-        {error && <p className="error">{error}</p>}
-      </section>
 
-      <section className="panel">
-        <div className="panel-header">
-          <h2>Todos</h2>
-          <button type="button" onClick={loadTodos}>Refresh</button>
-        </div>
-        {loading ? (
-          <p>Loading...</p>
-        ) : todos.length === 0 ? (
-          <p>No todos yet.</p>
-        ) : (
-          <ul className="todo-list">
+        {error ? <p className="status status-error">{error}</p> : null}
+        {isLoading ? <p className="status">Loading todos...</p> : null}
+
+        <section className="todo-list" aria-label="Todo list">
+          {todos.length === 0 && !isLoading ? (
+            <p className="empty-state">No todos yet. Add the first one above.</p>
+          ) : null}
+
+          <ul>
             {todos.map((todo) => (
-              <li key={todo.id} className="todo-item">
-                <strong>{todo.title}</strong>
-                {todo.description && <span>{todo.description}</span>}
+              <li key={todo.id} className={todo.completed ? 'todo-item completed' : 'todo-item'}>
+                <div className="todo-content">
+                  <strong>{todo.title}</strong>
+                  {todo.description ? <span>{todo.description}</span> : <span className="muted">No description</span>}
+                </div>
+                <div className="todo-actions">
+                  <button type="button" onClick={() => toggleTodo(todo.id, todo.completed)}>
+                    {todo.completed ? 'Undo' : 'Complete'}
+                  </button>
+                  <button type="button" className="destructive" onClick={() => deleteTodo(todo.id)}>
+                    Delete
+                  </button>
+                </div>
               </li>
             ))}
           </ul>
-        )}
-      </section>
-    </main>
+        </section>
+      </main>
+    </div>
   );
 }
+
+export default App;
